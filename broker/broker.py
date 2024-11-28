@@ -24,6 +24,7 @@ args = parser.parse_args()
 BROKER_ID = args.broker_id
 PORT = args.port
 HOST = "0.0.0.0"  # Listen on all interfaces
+LAMPORT_CLOCK = 0 # Initialize Lamport clock
 
 # Set PEER_IDS dynamically from the --peers argument or fall back to empty list
 if args.peers:
@@ -66,24 +67,31 @@ async def build_tree_and_start():
 # REST API routes
 async def publish(request):
     """Handle a publish request and replicate the message."""
+    global LAMPORT_CLOCK  # Access global Lamport clock
     try:
         data = await request.json()
         topic = data.get("topic")
         message = data.get("message")
         message_id = data.get("message_id", str(uuid.uuid4()))  # Generate or receive a message ID
-
+        
+        # Increment Lamport clock and attach it to the message
+        LAMPORT_CLOCK += 1
+        lamport_timestamp = LAMPORT_CLOCK
+        logging.debug(f"Updated Lamport clock: {LAMPORT_CLOCK}")
+        
         # Log incoming request
         logging.debug(f"Publish request received: {data}")
 
         # Store the message locally and replicate to other brokers
-        if data_store.store_message(topic, message, message_id):
-            await replication.replicate_message(topic, message, message_id)
-            return web.json_response({"status": "success"})
+        if data_store.store_message(topic, message, message_id, lamport_timestamp):
+            await replication.replicate_message(topic, message, message_id, lamport_timestamp)
+            return web.json_response({"status": "success", "timestamp": lamport_timestamp})
         else:
             return web.json_response({"status": "failure", "message": "Duplicate message detected."})
     except Exception as e:
         logging.exception(f"Error in publish route: {e}")
         return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 
 async def get_data(request):
     """Fetch messages for a specific topic."""

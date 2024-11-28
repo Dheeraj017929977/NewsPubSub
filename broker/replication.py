@@ -48,47 +48,37 @@ class DataReplication:
             # You can replace this with your actual spanning tree logic.
         logging.info(f"Dynamic spanning tree built: {self.spanning_tree}")
 
-    async def replicate_message(self, topic, message, message_id):
+    async def replicate_message(self, topic, message, message_id, lamport_timestamp):
         """Replicate the message to all peers using the spanning tree."""
         logging.debug(f"Attempting to replicate message '{message}' for topic '{topic}' with ID {message_id}")
         
         # Start the multicast/broadcast process using the spanning tree
-        await self.broadcast_message(self.broker_id, topic, message, message_id)
+        await self.broadcast_message(self.broker_id, topic, message, message_id, lamport_timestamp)
 
-    async def broadcast_message(self, parent_broker, topic, message, message_id):
+    async def broadcast_message(self, parent_broker, topic, message, message_id, lamport_timestamp):
         """Send message to all child brokers in the spanning tree iteratively."""
         logging.debug(f"Starting broadcast process from Broker {parent_broker} for topic '{topic}' with message ID {message_id}")
         
-        # Use a queue to process brokers iteratively
         queue = [parent_broker]
-        
         while queue:
-            current_broker = queue.pop(0)  # Get the first broker from the queue
+            current_broker = queue.pop(0)
             logging.debug(f"Broadcasting message from Broker {current_broker} (queue length: {len(queue)})")
             
-            # In a real-world scenario, parent-broker would determine child-broker relations
             children = self.spanning_tree.get(str(current_broker), [])
             logging.debug(f"Broker {current_broker} has children: {children}")
             
             for child in children:
                 logging.debug(f"Preparing to send message to child Broker {child}")
-                await self.send_to_peer(child, topic, message, message_id)
-                queue.append(child)  # Add child to the queue for further processing
-                logging.debug(f"Broker {child} added to the queue")
+                await self.send_to_peer(child, topic, message, message_id, lamport_timestamp)
+                queue.append(child)
 
-    async def send_to_peer(self, peer, topic, message, message_id):
+    async def send_to_peer(self, peer, topic, message, message_id, lamport_timestamp):
         """Send a message to a peer broker."""
         try:
-            logging.debug(f"Preparing to send message '{message}' for topic '{topic}' with ID {message_id} to Broker {peer}")
-
-            # Ensure peer is not empty and can be converted to integer
-            if not peer:
-                logging.warning("Invalid peer ID found, skipping replication.")
-                return
-
-            # Convert the peer from string to int and calculate the port
-            peer_int = int(peer)  # Convert peer ID to integer
-            peer_port = 3000 + peer_int - 1  # Assuming port starts from 3000 for broker 1, 3001 for broker 2, etc.
+            logging.debug(f"Preparing to send message '{message}' for topic '{topic}' with ID {message_id} and timestamp {lamport_timestamp} to Broker {peer}")
+            
+            peer_int = int(peer)
+            peer_port = 3000 + peer_int - 1
             url = f"http://127.0.0.1:{peer_port}/publish"
             logging.debug(f"Calculated URL for peer {peer}: {url}")
 
@@ -96,13 +86,12 @@ class DataReplication:
                 async with session.post(url, json={
                     "topic": topic,
                     "message": message,
-                    "message_id": message_id  # Include message ID for deduplication
+                    "message_id": message_id,
+                    "timestamp": lamport_timestamp  # Include timestamp for deduplication
                 }) as response:
                     if response.status != 200:
                         logging.error(f"Failed to replicate message to Broker {peer} (HTTP Status: {response.status})")
                     else:
                         logging.debug(f"Successfully replicated message to Broker {peer} (HTTP Status: {response.status})")
-        except ValueError as e:
-            logging.error(f"Error replicating to Broker {peer}: Invalid value encountered - {e}")
         except Exception as e:
             logging.error(f"Unexpected error replicating to Broker {peer}: {e}")

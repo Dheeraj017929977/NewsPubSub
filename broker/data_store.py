@@ -44,18 +44,22 @@ class DataStore:
         with open(self.dedup_filename, 'w') as f:
             json.dump(list(self.dedup_store), f, indent=4)
 
-    def store_message(self, topic, message, message_id):
-        """Store a message under a specific topic, with deduplication."""
+    def store_message(self, topic, message, message_id, lamport_timestamp):
+        """Store a message under a specific topic, with deduplication and Lamport timestamp."""
         if message_id not in self.dedup_store:
             if topic not in self.store:
                 self.store[topic] = []
-            self.store[topic].append(message)
+            # Store the message with its Lamport timestamp
+            self.store[topic].append({"message": message, "timestamp": lamport_timestamp})
             self.dedup_store.add(message_id)  # Add to deduplication store
             self.save_data()  # Persist data to file after storing a message
             self.save_dedup_data()  # Persist deduplication data
             return True  # Message was stored
         else:
             return False  # Message is a duplicate
+
+
+            
 
     def get_messages(self, topic):
         """Retrieve all messages for a specific topic."""
